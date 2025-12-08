@@ -17,22 +17,25 @@ class PresetsManager:
         "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
     ]
     
-    DEFAULT_PRESETS = [
-        {
-            "mes": i + 1,
-            "nome_mes": MONTHS[i],
-            "ativo": i == 0,  # Apenas janeiro ativo por padrão
-            "tipo": "Cor sólida",
-            "color1": "#FF0000",
-            "color2": "#0000FF",
-            "velocidade": "Médio",
-            "wave_width": 10,
-            "blink": False,
-            "blink_speed": "Médio",
-            "descricao": f"Efeito padrão de {MONTHS[i]}"
-        }
-        for i in range(12)
-    ]
+    @staticmethod
+    def _create_default_presets():
+        """Cria presets padrão dinamicamente"""
+        return [
+            {
+                "mes": i + 1,
+                "nome_mes": PresetsManager.MONTHS[i],
+                "ativo": i == 0,  # Apenas janeiro ativo por padrão
+                "tipo": "Cor sólida",
+                "color1": "#FF0000",
+                "color2": "#0000FF",
+                "velocidade": "Médio",
+                "wave_width": 10,
+                "blink": False,
+                "blink_speed": "Médio",
+                "descricao": f"Efeito padrão de {PresetsManager.MONTHS[i]}"
+            }
+            for i in range(12)
+        ]
     
     def __init__(self, presets_file=None):
         if presets_file is None:
@@ -50,12 +53,12 @@ class PresetsManager:
             try:
                 with open(self.presets_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    return data.get("presets", self.DEFAULT_PRESETS)
+                    return data.get("presets", self._create_default_presets())
             except Exception as e:
                 print(f"Erro ao carregar presets: {e}. Usando padrão.")
-                return self.DEFAULT_PRESETS.copy()
+                return self._create_default_presets()
         
-        return self.DEFAULT_PRESETS.copy()
+        return self._create_default_presets()
     
     def save_presets(self):
         """Salva presets em arquivo"""
