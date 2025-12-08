@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import QTimer, Qt
 from datetime import datetime
+import math
 
 from app.config_manager import load_config, save_config
 from app.presets_manager import PresetsManager
@@ -287,12 +288,8 @@ class EffectsTab(QWidget):
         delay_map = {"Lento": 300, "Médio": 150, "Rápido": 70, "Turbo": 30}
         delay = delay_map.get(speed_label, 150)
         
-        # Apenas Onda anima; outros efeitos são estáticos
-        if effect_type == "Onda":
-            self.timer.start(delay)
-        else:
-            self._generate_led_colors()
-            self.led_preview.update_leds(self.virtual_leds)
+        # Anima todos os efeitos (Cor sólida e Gradiente piscam, Onda move)
+        self.timer.start(delay)
     
     def update_preview_animation(self):
         """Chamado pelo timer para atualizar animação"""
@@ -304,32 +301,45 @@ class EffectsTab(QWidget):
         effect_type = self.effect_dropdown.currentText()
         
         if effect_type == "Cor sólida":
-            self.virtual_leds = [self.color1] * self.total_leds
+            # Pisca (alterna entre cor e preto)
+            if self.blink_state:
+                self.virtual_leds = [self.color1] * self.total_leds
+            else:
+                self.virtual_leds = [QColor(0, 0, 0)] * self.total_leds
+            self.blink_state = not self.blink_state
         
         elif effect_type == "Gradiente":
+            # Pisca o gradiente (alterna entre gradiente normal e invertido)
             self.virtual_leds = []
             for i in range(self.total_leds):
                 t = i / max(1, self.total_leds - 1)
-                r = int(self.color1.red() * (1 - t) + self.color2.red() * t)
-                g = int(self.color1.green() * (1 - t) + self.color2.green() * t)
-                b = int(self.color1.blue() * (1 - t) + self.color2.blue() * t)
+                # Se blink_state = True, gradiente normal; False, invertido
+                if self.blink_state:
+                    blend = t
+                else:
+                    blend = 1 - t
+                r = int(self.color1.red() * (1 - blend) + self.color2.red() * blend)
+                g = int(self.color1.green() * (1 - blend) + self.color2.green() * blend)
+                b = int(self.color1.blue() * (1 - blend) + self.color2.blue() * blend)
                 self.virtual_leds.append(QColor(r, g, b))
+            self.blink_state = not self.blink_state
         
         elif effect_type == "Onda":
-            wave_width = self.wave_width_slider.value()
+            wave_width = max(1, self.wave_width_slider.value())
             self.virtual_leds = []
+            period = 2 * wave_width
             for i in range(self.total_leds):
-                relative_pos = (i - self.wave_index) % self.total_leds
-                if relative_pos < wave_width:
-                    blend = 1 - (relative_pos / wave_width)
-                else:
-                    blend = 0
+                # faz um gradiente suave tipo vai-e-volta usando cosseno
+                phase = ((i - self.wave_index) % period) / wave_width  # 0..2
+                # blend varia suavemente entre 1 (color1) -> 0 (color2) -> 1 (color1)
+                blend = 0.5 * (1 + math.cos(math.pi * phase))
                 r = int(self.color1.red() * blend + self.color2.red() * (1 - blend))
                 g = int(self.color1.green() * blend + self.color2.green() * (1 - blend))
                 b = int(self.color1.blue() * blend + self.color2.blue() * (1 - blend))
                 self.virtual_leds.append(QColor(r, g, b))
-            
+
             if self.timer.isActive():
+                # Avança o índice para a próxima frame
                 self.wave_index = (self.wave_index + 1) % self.total_leds
     
     def _save_preset(self):

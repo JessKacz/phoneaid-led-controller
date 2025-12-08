@@ -26,14 +26,14 @@ class LinearLEDPreview(QWidget):
         self.led_colors = [QColor(0, 0, 0)] * total_leds
         self.hovered_led = None
         
-        self.setMinimumHeight(200)
+        self.setMinimumHeight(280)
         self.setStyleSheet("background-color: #000000;")
         self.setMouseTracking(True)
         
         # Configurações de desenho
-        self.fita_height = 80
-        self.fita_top = 40
-        self.letra_font_size = 72
+        self.fita_height = 100
+        self.fita_top = 60
+        self.letra_font_size = 100
         self.letra_depth = 8  # Profundidade do efeito 3D
         
     def update_leds(self, colors):
@@ -73,20 +73,24 @@ class LinearLEDPreview(QWidget):
             self._draw_hover_info(painter)
     
     def _draw_fita_leds(self, painter):
-        """Desenha a fita de LEDs (por trás das letras)"""
+        """Desenha a fita de LEDs apenas nas regiões das letras (acompanhando o mapeamento)"""
         available_width = self.width() - 40
         led_width = available_width / self.total_leds
         x_start = 20
         y_fita = self.fita_top
         
-        # Desenha a fita contínua
+        # Desenha a fita contínua (ajuste na largura do último LED para não perder pixels)
         for i in range(self.total_leds):
             x = x_start + i * led_width
-            rect = QRect(int(x), int(y_fita), int(led_width) + 1, self.fita_height)
-            
+            next_x = x_start + (i + 1) * led_width
+
+            # Largura calculada dinamicamente para prevenir perda do último LED
+            width = max(1, int(round(next_x - x)))
+            rect = QRect(int(x), int(y_fita), width, self.fita_height)
+
             # Preenche com a cor do LED
             painter.fillRect(rect, self.led_colors[i])
-            
+
             # Divisão sutil entre pixels
             painter.setPen(QPen(QColor(30, 30, 30), 0.5))
             painter.drawLine(int(x), int(y_fita), int(x), int(y_fita + self.fita_height))
@@ -107,7 +111,8 @@ class LinearLEDPreview(QWidget):
         font.setStyleStrategy(QFont.PreferAntialias)
         painter.setFont(font)
         
-        for letter, (start, end) in sorted(self.letter_mapping.items()):
+        # Respeita a ordem definida no mapeamento (não ordenar alfabeticamente)
+        for letter, (start, end) in self.letter_mapping.items():
             if start >= self.total_leds or end >= self.total_leds:
                 continue
             
@@ -116,6 +121,7 @@ class LinearLEDPreview(QWidget):
             x_end_letter = x_start + (end + 1) * led_width
             letter_center_x = (x_start_letter + x_end_letter) / 2
             letter_center_y = y_fita + self.fita_height / 2
+            letter_width = x_end_letter - x_start_letter
             
             # Desenha sombra/profundidade (efeito 3D - sombra inferior direita)
             for offset in range(1, self.letra_depth + 1):
@@ -125,30 +131,21 @@ class LinearLEDPreview(QWidget):
                 painter.setFont(font)
                 x_shadow = letter_center_x + offset
                 y_shadow = letter_center_y + offset
-                self._draw_text_centered(painter, int(x_shadow), int(y_shadow), letter, shadow_color)
+                # Desenha sombra dentro da região da letra
+                rect_shadow = QRect(int(x_start_letter), int(y_shadow - 40), int(letter_width), 100)
+                painter.drawText(rect_shadow, Qt.AlignCenter, letter)
             
-            # Desenha a letra com gradiente de branco (frente - iluminada)
+            # Desenha a letra frente iluminada
             painter.setPen(QPen(QColor(255, 255, 255)))
-            self._draw_text_centered(painter, int(letter_center_x), int(letter_center_y), letter)
+            painter.setFont(font)
+            rect_main = QRect(int(x_start_letter), int(letter_center_y - 50), int(letter_width), 120)
+            painter.drawText(rect_main, Qt.AlignCenter, letter)
             
             # Destaque na parte superior (efeito de brilho 3D)
             highlight_color = QColor(200, 200, 200)
             painter.setPen(QPen(highlight_color))
-            self._draw_text_centered(painter, int(letter_center_x) - 1, int(letter_center_y) - 1, letter)
-    
-    def _draw_text_centered(self, painter, x, y, text, color=None):
-        """Desenha texto centrado em x, y"""
-        if color:
-            painter.setPen(QPen(color))
-        
-        fm = painter.fontMetrics()
-        text_width = fm.horizontalAdvance(text)
-        text_height = fm.height()
-        
-        draw_x = x - text_width / 2
-        draw_y = y + text_height / 2
-        
-        painter.drawText(int(draw_x), int(draw_y), text)
+            rect_highlight = QRect(int(x_start_letter) - 2, int(letter_center_y - 52), int(letter_width), 120)
+            painter.drawText(rect_highlight, Qt.AlignCenter, letter)
     
     def _draw_hover_info(self, painter):
         """Desenha informação de qual LED está sendo observado"""
