@@ -1,22 +1,23 @@
 """
 widgets.py - Componentes customizados da UI
 """
-from PyQt5.QtWidgets import QWidget, QLabel, QVBoxLayout
-from PyQt5.QtGui import QPainter, QColor, QFont, QPen
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtWidgets import QWidget
+from PyQt5.QtGui import QPainter, QColor, QFont, QPen, QBrush
+from PyQt5.QtCore import Qt, pyqtSignal, QRect
 
 
 class LinearLEDPreview(QWidget):
     """
-    Widget que exibe a fita de LEDs como uma linha contínua com overlay das letras.
+    Widget que exibe a fita de LEDs passando ATRÁS das letras em alto relevo.
     
-    Mostra:
-    - Fita linear de LEDs (círculos coloridos)
-    - Overlay das letras com ranges (ex: P:00-05)
-    - Hover para mostrar número do LED
+    Simula fisicamente:
+    - Fita de LEDs contínua por trás
+    - Letras em alto relevo (3D) na frente
+    - Cores dos LEDs visíveis através das aberturas das letras
+    - Preview realista do projeto físico
     """
     
-    led_hovered = pyqtSignal(int)  # Emite índice do LED ao fazer hover
+    led_hovered = pyqtSignal(int)
     
     def __init__(self, total_leds=92, letter_mapping=None):
         super().__init__()
@@ -26,14 +27,14 @@ class LinearLEDPreview(QWidget):
         self.hovered_led = None
         
         self.setMinimumHeight(200)
-        self.setStyleSheet("background-color: #1a1a1a; border-radius: 8px;")
+        self.setStyleSheet("background-color: #000000;")
         self.setMouseTracking(True)
         
         # Configurações de desenho
-        self.led_diameter = 16
-        self.led_spacing = 3
-        self.top_margin = 30
-        self.label_height = 40
+        self.fita_height = 80
+        self.fita_top = 40
+        self.letra_font_size = 72
+        self.letra_depth = 8  # Profundidade do efeito 3D
         
     def update_leds(self, colors):
         """Atualiza as cores dos LEDs"""
@@ -53,121 +54,156 @@ class LinearLEDPreview(QWidget):
         self.update()
     
     def paintEvent(self, event):
-        """Desenha a fita linear com overlay das letras"""
+        """Desenha a fita de LEDs com letras em alto relevo na frente"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
         
-        # Desenha fundo escuro
-        painter.fillRect(self.rect(), QColor(26, 26, 26))
+        # Fundo preto (carcaça)
+        painter.fillRect(self.rect(), QColor(0, 0, 0))
         
-        # Calcula posição inicial (centralizado horizontalmente)
-        total_width = self.total_leds * (self.led_diameter + self.led_spacing)
-        x_offset = max(10, (self.width() - total_width) // 2)
-        y_center = self.top_margin
+        # Desenha a fita de LEDs POR TRÁS
+        self._draw_fita_leds(painter)
         
-        # Desenha cada LED como círculo
-        for i, color in enumerate(self.led_colors):
-            x = x_offset + i * (self.led_diameter + self.led_spacing)
-            y = y_center
-            
-            # Desenha LED
-            painter.fillEllipse(x, y, self.led_diameter, self.led_diameter)
-            painter.setBrush(color)
-            
-            # Contorno do LED (cinza escuro)
-            painter.setPen(QPen(QColor(60, 60, 60), 1))
-            painter.drawEllipse(x, y, self.led_diameter, self.led_diameter)
-            
-            # Highlight se está fazendo hover
-            if self.hovered_led == i:
-                painter.setPen(QPen(QColor(255, 255, 255), 2))
-                painter.drawEllipse(x - 2, y - 2, self.led_diameter + 4, self.led_diameter + 4)
+        # Desenha as letras 3D POR CIMA (alto relevo)
+        self._draw_letras_3d(painter)
         
-        # Desenha linha conectando os LEDs
-        painter.setPen(QPen(QColor(80, 80, 80), 1))
-        for i in range(self.total_leds - 1):
-            x1 = x_offset + i * (self.led_diameter + self.led_spacing) + self.led_diameter / 2
-            x2 = x_offset + (i + 1) * (self.led_diameter + self.led_spacing) + self.led_diameter / 2
-            y_line = y_center + self.led_diameter / 2
-            painter.drawLine(int(x1), int(y_line), int(x2), int(y_line))
-        
-        # Desenha overlay das letras e ranges
-        self._draw_letter_overlays(painter, x_offset, y_center)
-        
-        # Mostra informação do LED em hover
+        # Desenha hover info se necessário
         if self.hovered_led is not None:
-            self._draw_led_tooltip(painter, x_offset, y_center)
+            self._draw_hover_info(painter)
     
-    def _draw_letter_overlays(self, painter, x_offset, y_led):
-        """Desenha as caixas e rótulos das letras"""
-        painter.setFont(QFont("Arial", 9, QFont.Bold))
+    def _draw_fita_leds(self, painter):
+        """Desenha a fita de LEDs (por trás das letras)"""
+        available_width = self.width() - 40
+        led_width = available_width / self.total_leds
+        x_start = 20
+        y_fita = self.fita_top
+        
+        # Desenha a fita contínua
+        for i in range(self.total_leds):
+            x = x_start + i * led_width
+            rect = QRect(int(x), int(y_fita), int(led_width) + 1, self.fita_height)
+            
+            # Preenche com a cor do LED
+            painter.fillRect(rect, self.led_colors[i])
+            
+            # Divisão sutil entre pixels
+            painter.setPen(QPen(QColor(30, 30, 30), 0.5))
+            painter.drawLine(int(x), int(y_fita), int(x), int(y_fita + self.fita_height))
+        
+        # Borda da fita
+        painter.setPen(QPen(QColor(60, 60, 60), 2))
+        painter.drawRect(int(x_start), int(y_fita), int(available_width), self.fita_height)
+    
+    def _draw_letras_3d(self, painter):
+        """Desenha as letras em alto relevo (3D) sobre a fita"""
+        available_width = self.width() - 40
+        led_width = available_width / self.total_leds
+        x_start = 20
+        y_fita = self.fita_top
+        
+        # Font grande para as letras
+        font = QFont("Arial", self.letra_font_size, QFont.Bold)
+        font.setStyleStrategy(QFont.PreferAntialias)
+        painter.setFont(font)
         
         for letter, (start, end) in sorted(self.letter_mapping.items()):
             if start >= self.total_leds or end >= self.total_leds:
                 continue
             
-            x1 = x_offset + start * (self.led_diameter + self.led_spacing) - 5
-            x2 = x_offset + (end + 1) * (self.led_diameter + self.led_spacing)
-            y_rect = y_led + self.led_diameter + 10
-            height = 35
+            # Calcula posição da letra
+            x_start_letter = x_start + start * led_width
+            x_end_letter = x_start + (end + 1) * led_width
+            letter_center_x = (x_start_letter + x_end_letter) / 2
+            letter_center_y = y_fita + self.fita_height / 2
             
-            # Desenha caixa semitransparente
-            painter.fillRect(int(x1), int(y_rect), int(x2 - x1), int(height), 
-                           QColor(100, 150, 200, 60))
+            # Desenha sombra/profundidade (efeito 3D - sombra inferior direita)
+            for offset in range(1, self.letra_depth + 1):
+                alpha = int(100 * (1 - offset / self.letra_depth))
+                shadow_color = QColor(0, 0, 0, alpha)
+                painter.setPen(shadow_color)
+                painter.setFont(font)
+                x_shadow = letter_center_x + offset
+                y_shadow = letter_center_y + offset
+                self._draw_text_centered(painter, int(x_shadow), int(y_shadow), letter, shadow_color)
             
-            # Contorno da caixa
-            painter.setPen(QPen(QColor(100, 150, 200), 1))
-            painter.drawRect(int(x1), int(y_rect), int(x2 - x1), int(height))
+            # Desenha a letra com gradiente de branco (frente - iluminada)
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            self._draw_text_centered(painter, int(letter_center_x), int(letter_center_y), letter)
             
-            # Rótulo da letra com range (ex: P:00-05)
-            label = f"{letter}\n{start:02d}-{end:02d}"
-            painter.setPen(QColor(220, 220, 220))
-            painter.drawText(int(x1) + 3, int(y_rect) + 3, int(x2 - x1) - 6, int(height) - 3,
-                           Qt.AlignCenter, label)
+            # Destaque na parte superior (efeito de brilho 3D)
+            highlight_color = QColor(200, 200, 200)
+            painter.setPen(QPen(highlight_color))
+            self._draw_text_centered(painter, int(letter_center_x) - 1, int(letter_center_y) - 1, letter)
     
-    def _draw_led_tooltip(self, painter, x_offset, y_led):
-        """Desenha tooltip com número do LED no hover"""
-        x = x_offset + self.hovered_led * (self.led_diameter + self.led_spacing) + self.led_diameter / 2
-        y = y_led - 25
+    def _draw_text_centered(self, painter, x, y, text, color=None):
+        """Desenha texto centrado em x, y"""
+        if color:
+            painter.setPen(QPen(color))
         
-        # Texto
-        text = f"LED {self.hovered_led:02d}"
-        painter.setFont(QFont("Arial", 8, QFont.Bold))
+        fm = painter.fontMetrics()
+        text_width = fm.horizontalAdvance(text)
+        text_height = fm.height()
         
-        # Fundo do tooltip
-        painter.fillRect(int(x) - 25, int(y), 50, 18, QColor(40, 40, 40))
-        painter.setPen(QPen(QColor(200, 200, 200), 1))
-        painter.drawRect(int(x) - 25, int(y), 50, 18)
+        draw_x = x - text_width / 2
+        draw_y = y + text_height / 2
         
-        # Texto
-        painter.setPen(QColor(255, 255, 100))
-        painter.drawText(int(x) - 25, int(y), 50, 18, Qt.AlignCenter, text)
+        painter.drawText(int(draw_x), int(draw_y), text)
+    
+    def _draw_hover_info(self, painter):
+        """Desenha informação de qual LED está sendo observado"""
+        available_width = self.width() - 40
+        led_width = available_width / self.total_leds
+        x_start = 20
+        y_fita = self.fita_top
+        
+        x_hover = x_start + (self.hovered_led + 0.5) * led_width
+        y_top = y_fita - 30
+        
+        # Linha vertical indicadora em amarelo
+        painter.setPen(QPen(QColor(255, 255, 0), 3))
+        painter.drawLine(int(x_hover), int(y_top), int(x_hover), int(y_fita + self.fita_height + 30))
+        
+        # Número do LED
+        text = f"LED {self.hovered_led}"
+        font = QFont("Arial", 10, QFont.Bold)
+        painter.setFont(font)
+        painter.setPen(QPen(QColor(255, 255, 0)))
+        
+        fm = painter.fontMetrics()
+        text_width = fm.horizontalAdvance(text)
+        painter.drawText(int(x_hover - text_width / 2), int(y_top - 5), text)
     
     def mouseMoveEvent(self, event):
         """Detecta qual LED o mouse está sobre"""
-        x_offset = max(10, (self.width() - self.total_leds * (self.led_diameter + self.led_spacing)) // 2)
-        y_led = self.top_margin
+        x_start = 20
+        y_fita = self.fita_top
+        available_width = self.width() - 40
+        led_width = available_width / self.total_leds
         
         mouse_x = event.x()
         mouse_y = event.y()
         
-        # Verifica se o mouse está na área dos LEDs
-        if y_led <= mouse_y <= y_led + self.led_diameter:
-            # Calcula qual LED
-            led_index = (mouse_x - x_offset) / (self.led_diameter + self.led_spacing)
-            
-            if 0 <= led_index < self.total_leds:
-                self.hovered_led = int(led_index)
-                self.led_hovered.emit(self.hovered_led)
-                self.update()
-                return
+        # Verifica se o mouse está sobre a fita
+        if y_fita <= mouse_y <= y_fita + self.fita_height:
+            if x_start <= mouse_x <= x_start + available_width:
+                # Calcula qual LED
+                led_index = int((mouse_x - x_start) / led_width)
+                if 0 <= led_index < self.total_leds:
+                    self.hovered_led = led_index
+                    self.led_hovered.emit(led_index)
+                    self.update()
+                    return
         
+        # Se não está sobre a fita, remove o hover
         if self.hovered_led is not None:
             self.hovered_led = None
             self.update()
     
     def leaveEvent(self, event):
-        """Remove hover ao sair do widget"""
+        """Limpa hover ao sair do widget"""
         if self.hovered_led is not None:
             self.hovered_led = None
             self.update()
+
+

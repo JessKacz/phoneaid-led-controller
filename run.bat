@@ -3,6 +3,9 @@ REM Script para iniciar o PhoneAid LED Controller no Windows
 
 cd /d "%~dp0"
 
+REM Define PYTHONPATH para incluir o diretório atual
+set PYTHONPATH=%CD%;%PYTHONPATH%
+
 REM Verifica se Python está instalado
 python --version >nul 2>&1
 if errorlevel 1 (
