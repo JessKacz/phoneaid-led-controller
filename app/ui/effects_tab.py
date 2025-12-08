@@ -1,30 +1,63 @@
+"""
+effects_tab.py - Aba de editor de efeitos com preview linear
+"""
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout,
-    QPushButton, QComboBox, QColorDialog, QGraphicsDropShadowEffect,
-    QSlider, QSizePolicy, QCheckBox
+    QPushButton, QComboBox, QColorDialog, QSlider, QSizePolicy,
+    QCheckBox, QSpinBox, QMessageBox, QGroupBox
 )
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import QTimer, Qt
-from app.led_controller import send_command
+from datetime import datetime
+
 from app.config_manager import load_config, save_config
+from app.presets_manager import PresetsManager
+from app.ui.widgets import LinearLEDPreview
+
 
 class EffectsTab(QWidget):
-    def __init__(self, get_serial_port):
+    """
+    Aba para edição de efeitos com preview linear em tempo real.
+    Permite salvar até 12 presets mensais.
+    """
+    
+    def __init__(self):
         super().__init__()
-        self.get_serial_port = get_serial_port
-        self.layout = QVBoxLayout()
-        self.layout.setAlignment(Qt.AlignTop)
-        self.layout.setSpacing(20)
-
+        self.config = load_config()
+        self.total_leds = self.config.get("total_leds", 92)
+        self.letter_mapping = {k.upper(): v for k, v in self.config.get("letters", {}).items()}
+        
+        self.presets_manager = PresetsManager()
+        self.current_preset = self.presets_manager.get_active_preset()
+        
+        # Cores selecionadas
+        self.color1 = QColor(255, 0, 0)
+        self.color2 = QColor(0, 0, 255)
+        
+        # Estado da animação
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_preview_animation)
+        self.wave_index = 0
+        self.blink_state = True
+        self.virtual_leds = [QColor(0, 0, 0) for _ in range(self.total_leds)]
+        
+        self._init_ui()
+        self._load_preset_data()
+    
+    def _init_ui(self):
+        """Inicializa interface"""
+        layout = QVBoxLayout()
+        layout.setAlignment(Qt.AlignTop)
+        layout.setSpacing(15)
+        
         self.setStyleSheet("""
             QPushButton {
-                min-width: 250px;
-                max-width: 250px;
-                padding: 6px;
-                font-size: 16px;
+                min-width: 200px;
+                padding: 8px;
+                font-size: 13px;
                 background-color: #e6f0ff;
                 border: 1px solid #99c2ff;
-                border-radius: 8px;
+                border-radius: 6px;
             }
             QPushButton:hover {
                 background-color: #cce0ff;
@@ -33,254 +66,290 @@ class EffectsTab(QWidget):
                 background-color: #f2f2f2;
                 color: #a6a6a6;
             }
+            QGroupBox {
+                font-weight: bold;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                margin-top: 10px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 3px 0 3px;
+            }
         """)
-
-        self.config = load_config()
-        self.total_leds = self.config.get("total_leds", 70)
-        self.letter_mapping = {k.upper(): v for k, v in self.config.get("letters", {}).items()}
-
-        self.label = QLabel("Escolha o efeito de luz:")
-        self.label.setFont(QFont("Arial", 12, QFont.Bold))
-        self.layout.addWidget(self.label)
-
-        self.letter_labels = []
-        self.letters = "PHONEAID"
-        self.letter_container = QHBoxLayout()
-        for char in self.letters:
-            lbl = QLabel(char)
-            lbl.setFont(QFont("Arial", 42, QFont.Bold))
-            lbl.setStyleSheet("color: white; padding: 10px; background-color: transparent;")
-            effect = QGraphicsDropShadowEffect()
-            effect.setOffset(0)
-            effect.setBlurRadius(40)
-            effect.setColor(QColor(0, 0, 0))
-            lbl.setGraphicsEffect(effect)
-            self.letter_labels.append((char.upper(), lbl, effect))
-            self.letter_container.addWidget(lbl)
-        self.layout.addLayout(self.letter_container)
-
-        # Linha do tipo de efeito e checkbox piscar
+        
+        # ===== Seção: Seleção de Preset =====
+        layout.addWidget(QLabel("Selecione o efeito de luz:"))
+        self.preset_selector = QComboBox()
+        self.preset_selector.addItems([f"Mês {i}: {m}" for i, m in enumerate(PresetsManager.MONTHS, 1)])
+        self.preset_selector.currentIndexChanged.connect(self._on_preset_changed)
+        layout.addWidget(self.preset_selector)
+        
+        # ===== Seção: Tipo de Efeito =====
+        effect_group = QGroupBox("🎨 Tipo de Efeito")
+        effect_layout = QHBoxLayout()
+        
         self.effect_dropdown = QComboBox()
         self.effect_dropdown.addItems(["Cor sólida", "Gradiente", "Onda"])
-        self.effect_dropdown.currentIndexChanged.connect(self.update_color_inputs)
-        self.effect_dropdown.setFixedWidth(200)
-        self.effect_dropdown.setFixedHeight(26)
-        self.effect_dropdown.setFont(QFont("Arial", 10))
-
-        self.blink_checkbox = QCheckBox("Piscar")
-        self.blink_checkbox.stateChanged.connect(self.update_color_inputs)
-
-        self.blink_speed_dropdown = QComboBox()
-        self.blink_speed_dropdown.addItems(["Lento", "Médio", "Rápido", "Turbo"])
-        self.blink_speed_dropdown.setFixedWidth(120)
-        self.blink_speed_dropdown.setFixedHeight(26)
-        self.blink_speed_dropdown.setFont(QFont("Arial", 10))
-
-        self.blink_alternate_checkbox = QCheckBox("Piscar Alternado")
-
-        effect_row = QHBoxLayout()
-        effect_row.setAlignment(Qt.AlignLeft)
-        effect_row.addWidget(self.effect_dropdown)
-        effect_row.addSpacing(10)
-        effect_row.addWidget(self.blink_checkbox)
-        effect_row.addSpacing(10)
-        effect_row.addWidget(self.blink_speed_dropdown)
-        effect_row.addSpacing(10)
-        effect_row.addWidget(self.blink_alternate_checkbox)
-        self.layout.addLayout(effect_row)
-
-        self.color1_btn = QPushButton("Cor 1")
-        self.color1_btn.clicked.connect(self.select_color1)
-        self.color1_preview = QLabel()
-        self.color1_preview.setFixedSize(30, 20)
-        self.color1_preview.setStyleSheet("background-color: rgb(255, 0, 0); border: 1px solid #999;")
-
-        self.color2_btn = QPushButton("Cor 2")
-        self.color2_btn.clicked.connect(self.select_color2)
-        self.color2_preview = QLabel()
-        self.color2_preview.setFixedSize(30, 20)
-        self.color2_preview.setStyleSheet("background-color: rgb(0, 0, 255); border: 1px solid #999;")
-
-        self.colors_column = QVBoxLayout()
+        self.effect_dropdown.currentIndexChanged.connect(self._on_effect_type_changed)
+        self.effect_dropdown.setFixedWidth(150)
+        
+        effect_layout.addWidget(QLabel("Tipo:"))
+        effect_layout.addWidget(self.effect_dropdown)
+        effect_layout.addStretch()
+        
+        effect_group.setLayout(effect_layout)
+        layout.addWidget(effect_group)
+        
+        # ===== Seção: Cores =====
+        color_group = QGroupBox("🎨 Configuração de Cores")
+        color_layout = QVBoxLayout()
+        
+        # Cor 1
         color1_row = QHBoxLayout()
+        self.color1_btn = QPushButton("Selecionar Cor 1")
+        self.color1_btn.clicked.connect(self._select_color1)
+        self.color1_preview = QLabel()
+        self.color1_preview.setFixedSize(40, 30)
+        self.color1_preview.setStyleSheet("background-color: rgb(255, 0, 0); border: 2px solid #333;")
         color1_row.addWidget(self.color1_btn)
         color1_row.addWidget(self.color1_preview)
-        self.colors_column.addLayout(color1_row)
-
+        color1_row.addStretch()
+        color_layout.addLayout(color1_row)
+        
+        # Cor 2
         color2_row = QHBoxLayout()
+        self.color2_btn = QPushButton("Selecionar Cor 2")
+        self.color2_btn.clicked.connect(self._select_color2)
+        self.color2_preview = QLabel()
+        self.color2_preview.setFixedSize(40, 30)
+        self.color2_preview.setStyleSheet("background-color: rgb(0, 0, 255); border: 2px solid #333;")
         color2_row.addWidget(self.color2_btn)
         color2_row.addWidget(self.color2_preview)
-        self.colors_column.addLayout(color2_row)
-        self.colors_column.setSpacing(12)
-
-        color_block = QHBoxLayout()
-        color_block.setAlignment(Qt.AlignLeft)
-        color_block.addLayout(self.colors_column)
-        self.layout.addLayout(color_block)
-
+        color2_row.addStretch()
+        color_layout.addLayout(color2_row)
+        
+        color_group.setLayout(color_layout)
+        layout.addWidget(color_group)
+        
+        # ===== Seção: Velocidade =====
+        speed_group = QGroupBox("⚡ Velocidade")
+        speed_layout = QHBoxLayout()
+        
         self.speed_dropdown = QComboBox()
         self.speed_dropdown.addItems(["Lento", "Médio", "Rápido", "Turbo"])
         self.speed_dropdown.setFixedWidth(120)
-        self.speed_dropdown.setFixedHeight(26)
-        self.speed_dropdown.setFont(QFont("Arial", 10))
-        speed_row = QHBoxLayout()
-        speed_row.setAlignment(Qt.AlignLeft)
-        speed_row.addWidget(self.speed_dropdown)
-        self.layout.addLayout(speed_row)
-
-        self.wave_width_label = QLabel("Largura da Onda (LEDs):")
-        self.wave_width_label.setFixedHeight(24)
-        self.wave_width_label.setFont(QFont("Arial", 11))
-
+        self.speed_dropdown.currentIndexChanged.connect(self._on_preview_update)
+        
+        speed_layout.addWidget(QLabel("Velocidade:"))
+        speed_layout.addWidget(self.speed_dropdown)
+        speed_layout.addStretch()
+        
+        speed_group.setLayout(speed_layout)
+        layout.addWidget(speed_group)
+        
+        # ===== Seção: Largura da Onda =====
+        wave_group = QGroupBox("〰️ Parâmetros da Onda")
+        wave_layout = QHBoxLayout()
+        
+        self.wave_width_label = QLabel("Largura (LEDs):")
         self.wave_width_slider = QSlider(Qt.Horizontal)
         self.wave_width_slider.setMinimum(1)
         self.wave_width_slider.setMaximum(self.total_leds)
-        self.wave_width_slider.setValue(self.total_leds // 2)
+        self.wave_width_slider.setValue(self.total_leds // 4)
         self.wave_width_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
-        wave_row = QHBoxLayout()
-        wave_row.setAlignment(Qt.AlignLeft)
-        wave_row.addWidget(self.wave_width_label)
-        wave_row.addSpacing(10)
-        wave_row.addWidget(self.wave_width_slider, stretch=1)
-        self.layout.addLayout(wave_row)
-
-        self.visualize_btn = QPushButton("👁️ Visualizar Efeito")
-        self.visualize_btn.clicked.connect(self.apply_effect)
-        self.layout.addWidget(self.visualize_btn, alignment=Qt.AlignLeft)
-
-        self.save_btn = QPushButton("💾 Salvar Efeito")
-        self.save_btn.clicked.connect(self.save_effect_config)
-        self.layout.addWidget(self.save_btn, alignment=Qt.AlignCenter)
-
-        self.saved_info_label = QLabel("")
-        self.saved_info_label.setFont(QFont("Arial", 8))
-        self.saved_info_label.setTextFormat(Qt.RichText)
-        self.layout.addWidget(self.saved_info_label)
-
-        self.color1 = QColor(255, 0, 0)
-        self.color2 = QColor(0, 0, 255)
-
-        self.timer = QTimer()
-        self.setLayout(self.layout)
-        self.update_color_inputs()
-        self.timer.timeout.connect(self.animate_effect_frame)
-
-        self.current_effect = None
-        self.wave_index = 0
-        self.blink_state = True
-        self.virtual_leds = [QColor(0, 0, 0) for _ in range(self.total_leds)]
-
-    def update_color_inputs(self):
-        effect = self.effect_dropdown.currentText()
-        is_onda = effect == "Onda"
-        is_grad = effect == "Gradiente"
-        is_solid = effect == "Cor sólida"
-        blink_enabled = is_grad or is_solid
-        self.color2_btn.setVisible(effect in ["Gradiente", "Onda"])
-        self.color2_preview.setVisible(effect in ["Gradiente", "Onda"])
-        self.speed_dropdown.setVisible(is_onda)
-        self.wave_width_label.setVisible(is_onda)
-        self.wave_width_slider.setVisible(is_onda)
-        self.blink_checkbox.setVisible(blink_enabled)
-        self.blink_speed_dropdown.setVisible(blink_enabled and self.blink_checkbox.isChecked())
-        self.blink_alternate_checkbox.setVisible(is_grad and self.blink_checkbox.isChecked())
-
-    def select_color1(self):
-        color = QColorDialog.getColor()
-        if color.isValid():
-            self.color1 = color
-            self.color1_preview.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #999;")
-
-    def select_color2(self):
-        color = QColorDialog.getColor()
-        if color.isValid():
-            self.color2 = color
-            self.color2_preview.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #999;")
-
-    def apply_effect(self):
+        self.wave_width_slider.sliderMoved.connect(self._on_preview_update)
+        
+        self.wave_width_value = QLabel(str(self.wave_width_slider.value()))
+        
+        wave_layout.addWidget(self.wave_width_label)
+        wave_layout.addWidget(self.wave_width_slider, stretch=1)
+        wave_layout.addWidget(self.wave_width_value)
+        
+        wave_group.setLayout(wave_layout)
+        self.wave_group = wave_group
+        layout.addWidget(wave_group)
+        
+        # ===== Preview Linear =====
+        preview_label = QLabel("🎬 Preview da Fita de LEDs")
+        preview_label.setFont(QFont("Arial", 11, QFont.Bold))
+        layout.addWidget(preview_label)
+        
+        self.led_preview = LinearLEDPreview(self.total_leds, self.letter_mapping)
+        layout.addWidget(self.led_preview)
+        
+        # ===== Botões de Ação =====
+        action_layout = QHBoxLayout()
+        
+        self.preview_btn = QPushButton("👁️ Visualizar Efeito")
+        self.preview_btn.clicked.connect(self._start_animation)
+        
+        self.save_btn = QPushButton("💾 Salvar como Preset")
+        self.save_btn.clicked.connect(self._save_preset)
+        
+        action_layout.addWidget(self.preview_btn)
+        action_layout.addWidget(self.save_btn)
+        layout.addLayout(action_layout)
+        
+        layout.addStretch()
+        self.setLayout(layout)
+        
+        # Conecta mudanças de configuração
+        self._on_effect_type_changed()
+    
+    def _on_preset_changed(self):
+        """Carrega dados do preset selecionado"""
+        mes = self.preset_selector.currentIndex() + 1
+        preset = self.presets_manager.get_preset(mes)
+        if preset:
+            self.current_preset = preset
+            self._load_preset_data()
+    
+    def _load_preset_data(self):
+        """Carrega dados do preset atual na interface"""
+        if not self.current_preset:
+            return
+        
+        # Tipo de efeito
+        effect_type = self.current_preset.get("tipo", "Cor sólida")
+        index = self.effect_dropdown.findText(effect_type)
+        if index >= 0:
+            self.effect_dropdown.setCurrentIndex(index)
+        
+        # Cores
+        color1_hex = self.current_preset.get("color1", "#FF0000")
+        color2_hex = self.current_preset.get("color2", "#0000FF")
+        self.color1 = QColor(color1_hex)
+        self.color2 = QColor(color2_hex)
+        self.color1_preview.setStyleSheet(f"background-color: {color1_hex}; border: 2px solid #333;")
+        self.color2_preview.setStyleSheet(f"background-color: {color2_hex}; border: 2px solid #333;")
+        
+        # Velocidade
+        speed = self.current_preset.get("velocidade", "Médio")
+        index = self.speed_dropdown.findText(speed)
+        if index >= 0:
+            self.speed_dropdown.setCurrentIndex(index)
+        
+        # Largura da onda
+        wave_width = self.current_preset.get("wave_width", self.total_leds // 4)
+        self.wave_width_slider.setValue(wave_width)
+        self.wave_width_value.setText(str(wave_width))
+        
+        self._on_preview_update()
+    
+    def _on_effect_type_changed(self):
+        """Mostra/esconde controles baseado no tipo de efeito"""
+        effect_type = self.effect_dropdown.currentText()
+        
+        # Cor 2 só aparece em Gradiente e Onda
+        self.color2_btn.setVisible(effect_type in ["Gradiente", "Onda"])
+        self.color2_preview.setVisible(effect_type in ["Gradiente", "Onda"])
+        
+        # Onda width slider só em Onda
+        self.wave_group.setVisible(effect_type == "Onda")
+        
+        self._on_preview_update()
+    
+    def _on_preview_update(self):
+        """Atualiza preview sem animar (parado)"""
         self.timer.stop()
         self.wave_index = 0
         self.blink_state = True
-        self.current_effect = self.effect_dropdown.currentText()
-
-        delay = 300
-        if self.blink_checkbox.isChecked():
-            speed = self.blink_speed_dropdown.currentText()
-            delay = 300 if speed == "Lento" else 150 if speed == "Médio" else 70 if speed == "Rápido" else 30
-            self.timer.start(delay)
-        elif self.current_effect == "Onda":
-            speed = self.speed_dropdown.currentText()
-            delay = 300 if speed == "Lento" else 150 if speed == "Médio" else 70 if speed == "Rápido" else 30
+        self._generate_led_colors()
+        self.led_preview.update_leds(self.virtual_leds)
+    
+    def _select_color1(self):
+        """Abre diálogo de cor para Cor 1"""
+        color = QColorDialog.getColor(self.color1, self, "Selecionar Cor 1")
+        if color.isValid():
+            self.color1 = color
+            self.color1_preview.setStyleSheet(f"background-color: {color.name()}; border: 2px solid #333;")
+            self._on_preview_update()
+    
+    def _select_color2(self):
+        """Abre diálogo de cor para Cor 2"""
+        color = QColorDialog.getColor(self.color2, self, "Selecionar Cor 2")
+        if color.isValid():
+            self.color2 = color
+            self.color2_preview.setStyleSheet(f"background-color: {color.name()}; border: 2px solid #333;")
+            self._on_preview_update()
+    
+    def _start_animation(self):
+        """Inicia animação do efeito"""
+        self.timer.stop()
+        self.wave_index = 0
+        self.blink_state = True
+        
+        effect_type = self.effect_dropdown.currentText()
+        speed_label = self.speed_dropdown.currentText()
+        delay_map = {"Lento": 300, "Médio": 150, "Rápido": 70, "Turbo": 30}
+        delay = delay_map.get(speed_label, 150)
+        
+        # Apenas Onda anima; outros efeitos são estáticos
+        if effect_type == "Onda":
             self.timer.start(delay)
         else:
-            self.animate_effect_frame()
-
-    def animate_effect_frame(self):
-        if self.current_effect == "Cor sólida":
-            if self.blink_checkbox.isChecked():
-                color = self.color1 if self.blink_state else QColor(0, 0, 0)
-                for _, _, e in self.letter_labels:
-                    e.setColor(color)
-                self.blink_state = not self.blink_state
-            else:
-                for _, _, e in self.letter_labels:
-                    e.setColor(self.color1)
-
-        elif self.current_effect == "Gradiente":
-            if self.blink_checkbox.isChecked():
-                if self.blink_alternate_checkbox.isChecked():
-                    color = self.color1 if self.blink_state else self.color2
-                    for _, _, e in self.letter_labels:
-                        e.setColor(color)
-                else:
-                    leds = [QColor(0, 0, 0)] * self.total_leds if not self.blink_state else []
-                    if self.blink_state:
-                        for i in range(self.total_leds):
-                            t = i / max(1, self.total_leds - 1)
-                            r = int(self.color1.red() * (1 - t) + self.color2.red() * t)
-                            g = int(self.color1.green() * (1 - t) + self.color2.green() * t)
-                            b = int(self.color1.blue() * (1 - t) + self.color2.blue() * t)
-                            leds.append(QColor(r, g, b))
-                    self.virtual_leds = leds
-                    self.update_preview_from_leds()
-                self.blink_state = not self.blink_state
-            else:
-                for i in range(self.total_leds):
-                    t = i / max(1, self.total_leds - 1)
-                    r = int(self.color1.red() * (1 - t) + self.color2.red() * t)
-                    g = int(self.color1.green() * (1 - t) + self.color2.green() * t)
-                    b = int(self.color1.blue() * (1 - t) + self.color2.blue() * t)
-                    self.virtual_leds[i] = QColor(r, g, b)
-                self.update_preview_from_leds()
-
-        elif self.current_effect == "Onda":
-            segment_length = self.wave_width_slider.value()
+            self._generate_led_colors()
+            self.led_preview.update_leds(self.virtual_leds)
+    
+    def update_preview_animation(self):
+        """Chamado pelo timer para atualizar animação"""
+        self._generate_led_colors()
+        self.led_preview.update_leds(self.virtual_leds)
+    
+    def _generate_led_colors(self):
+        """Gera array de cores dos LEDs baseado no efeito selecionado"""
+        effect_type = self.effect_dropdown.currentText()
+        
+        if effect_type == "Cor sólida":
+            self.virtual_leds = [self.color1] * self.total_leds
+        
+        elif effect_type == "Gradiente":
+            self.virtual_leds = []
+            for i in range(self.total_leds):
+                t = i / max(1, self.total_leds - 1)
+                r = int(self.color1.red() * (1 - t) + self.color2.red() * t)
+                g = int(self.color1.green() * (1 - t) + self.color2.green() * t)
+                b = int(self.color1.blue() * (1 - t) + self.color2.blue() * t)
+                self.virtual_leds.append(QColor(r, g, b))
+        
+        elif effect_type == "Onda":
+            wave_width = self.wave_width_slider.value()
+            self.virtual_leds = []
             for i in range(self.total_leds):
                 relative_pos = (i - self.wave_index) % self.total_leds
-                if relative_pos < segment_length:
-                    blend = 1 - (relative_pos / segment_length)
+                if relative_pos < wave_width:
+                    blend = 1 - (relative_pos / wave_width)
                 else:
                     blend = 0
                 r = int(self.color1.red() * blend + self.color2.red() * (1 - blend))
                 g = int(self.color1.green() * blend + self.color2.green() * (1 - blend))
                 b = int(self.color1.blue() * blend + self.color2.blue() * (1 - blend))
-                self.virtual_leds[i] = QColor(r, g, b)
-            self.wave_index = (self.wave_index + 1) % self.total_leds
-            self.update_preview_from_leds()
-
-    def update_preview_from_leds(self):
-        for char, label, effect in self.letter_labels:
-            if char not in self.letter_mapping:
-                continue
-            start, end = self.letter_mapping[char]
-            leds = self.virtual_leds[start:end+1]
-            if leds:
-                avg_r = sum(c.red() for c in leds) // len(leds)
-                avg_g = sum(c.green() for c in leds) // len(leds)
-                avg_b = sum(c.blue() for c in leds) // len(leds)
-                effect.setColor(QColor(avg_r, avg_g, avg_b))
-
-    def save_effect_config(self):
-        # TODO: incluir persistência dos flags de piscar se necessário
-        pass
+                self.virtual_leds.append(QColor(r, g, b))
+            
+            if self.timer.isActive():
+                self.wave_index = (self.wave_index + 1) % self.total_leds
+    
+    def _save_preset(self):
+        """Salva o efeito atual como preset"""
+        mes = self.preset_selector.currentIndex() + 1
+        
+        effect_data = {
+            "tipo": self.effect_dropdown.currentText(),
+            "color1": self.color1.name(),
+            "color2": self.color2.name(),
+            "velocidade": self.speed_dropdown.currentText(),
+            "wave_width": self.wave_width_slider.value(),
+            "descricao": f"Efeito salvo em {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        }
+        
+        self.presets_manager.update_preset(mes, effect_data)
+        self.presets_manager.set_active_preset(mes)
+        
+        QMessageBox.information(
+            self,
+            "Sucesso",
+            f"Efeito salvo no mês {mes} ({PresetsManager.MONTHS[mes-1]}) com sucesso!"
+        )

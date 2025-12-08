@@ -38,12 +38,11 @@ class MainApp(QMainWindow):
 
         tabs.addTab(self.installer_tab, "Instalador")
         tabs.addTab(ConfigTab(), "Configurar LEDs")
-        tabs.addTab(EffectsTab(self.get_serial_port), "Efeitos")
+        tabs.addTab(EffectsTab(), "Efeitos")
 
         self.setCentralWidget(tabs)
 
-    def get_serial_port(self):
-        return self.installer_tab.serial_port if hasattr(self.installer_tab, 'serial_port') else None
+    # Removido: get_serial_port - não necessário mais
 
 
 if __name__ == "__main__":
