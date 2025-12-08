@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.Python
+env/
+venv/
+ENV/
+.eggs/
+*.egg-info/
+.dist-info/
+.Python
+
+# Virtualenv
+venv/
+ENV/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Build
+build/
+dist/
+
+# Byte-compiled / optimized / DLL files
+*.so
+
+# Installer
+*.egg
+
+# Installer / packaging
+pip-wheel-metadata/
+
+# Other
+*.swp
+
+# Arduino build artifacts
+*.hex
+*.elf
+*.bin
+
+# Local config
+app/config.json
