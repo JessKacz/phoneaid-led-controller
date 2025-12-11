@@ -104,35 +104,19 @@ class LinearLEDPreview(QWidget):
         self.update()
     
     def paintEvent(self, event):
-        """Desenha a fita de LEDs com letras em alto relevo na frente"""
+        """Desenha o grid de LEDs ou a fita linear."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
         
-        # Fundo preto (carcaça)
+        # Fundo preto
         painter.fillRect(self.rect(), QColor(0, 0, 0))
         
-        # Se em modo grid, desenhar apenas o grid estático com números
+        # Prioridade: grid > fita linear
         if self.led_grid_positions:
             self._draw_grid_with_led_ids(painter)
         else:
-            # Desenha os LEDs: modo linear ou fita
-            if self.led_relative_positions:
-                self._draw_leds_relative(painter)
-            elif self.led_grid_positions:
-                self._draw_leds_grid(painter)
-            else:
-                self._draw_fita_leds(painter)
-
-            # Render glow layer offscreen (radial gradients per LED) so it can overflow
-            self._draw_glow_layer(painter)
-
-            # Desenha as letras 3D POR CIMA (alto relevo) — por cima do glow
-            self._draw_letras_3d(painter)
-        
-        # Desenha hover info se necessário
-        if self.hovered_led is not None:
-            self._draw_hover_info(painter)
+            self._draw_fita_leds(painter)
         
         # Desenha hover info se necessário
         if self.hovered_led is not None:
