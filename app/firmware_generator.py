@@ -13,9 +13,13 @@ class FirmwareGenerator:
 #include <FastLED.h>
 
 #define NUM_LEDS {total_leds}
-#define DATA_PIN 6
+#define NUM_PORTS {num_ports}
 
-CRGB leds[NUM_LEDS];
+// Portas de dados para cada saída de LEDs (referência)
+const uint8_t DATA_PINS[NUM_PORTS] = {{{data_pins_array}}};
+
+// Array de arrays para armazenar LEDs de cada porta
+CRGB leds[NUM_PORTS][NUM_LEDS];
 
 // Struct para definir cada efeito
 struct Effect {{
@@ -36,13 +40,16 @@ uint32_t last_update = 0;
 uint16_t wave_index = 0;
 
 void setup() {{
-    FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
+    // Configura FastLED para todas as portas (chamadas geradas com pinos constantes)
+{add_leds_calls}
     FastLED.setBrightness(255);
     Serial.begin(9600);
 }}
 
 void loop() {{
     apply_effect(effects[current_effect]);
+    
+    // Mostra efeito (FastLED.show atualiza todos os controladores registrados)
     FastLED.show();
     
     // Recebe comando serial se disponível
@@ -75,35 +82,41 @@ void apply_effect(Effect& effect) {{
 
 void apply_solid(Effect& effect) {{
     CRGB color(effect.r1, effect.g1, effect.b1);
-    fill_solid(leds, NUM_LEDS, color);
+    for (int port = 0; port < NUM_PORTS; port++) {{
+        fill_solid(leds[port], NUM_LEDS, color);
+    }}
 }}
 
 void apply_gradient(Effect& effect) {{
-    for (int i = 0; i < NUM_LEDS; i++) {{
-        float t = (float)i / (float)(NUM_LEDS - 1);
-        uint8_t r = (uint8_t)(effect.r1 * (1.0 - t) + effect.r2 * t);
-        uint8_t g = (uint8_t)(effect.g1 * (1.0 - t) + effect.g2 * t);
-        uint8_t b = (uint8_t)(effect.b1 * (1.0 - t) + effect.b2 * t);
-        leds[i] = CRGB(r, g, b);
+    for (int port = 0; port < NUM_PORTS; port++) {{
+        for (int i = 0; i < NUM_LEDS; i++) {{
+            float t = (float)i / (float)(NUM_LEDS - 1);
+            uint8_t r = (uint8_t)(effect.r1 * (1.0 - t) + effect.r2 * t);
+            uint8_t g = (uint8_t)(effect.g1 * (1.0 - t) + effect.g2 * t);
+            uint8_t b = (uint8_t)(effect.b1 * (1.0 - t) + effect.b2 * t);
+            leds[port][i] = CRGB(r, g, b);
+        }}
     }}
 }}
 
 void apply_wave(Effect& effect) {{
     uint16_t wave_width = effect.wave_width;
     
-    for (int i = 0; i < NUM_LEDS; i++) {{
-        int relative_pos = (i - wave_index + NUM_LEDS) % NUM_LEDS;
-        float blend = 0.0;
-        
-        if (relative_pos < wave_width) {{
-            blend = 1.0 - ((float)relative_pos / (float)wave_width);
+    for (int port = 0; port < NUM_PORTS; port++) {{
+        for (int i = 0; i < NUM_LEDS; i++) {{
+            int relative_pos = (i - wave_index + NUM_LEDS) % NUM_LEDS;
+            float blend = 0.0;
+            
+            if (relative_pos < wave_width) {{
+                blend = 1.0 - ((float)relative_pos / (float)wave_width);
+            }}
+            
+            uint8_t r = (uint8_t)(effect.r1 * blend + effect.r2 * (1.0 - blend));
+            uint8_t g = (uint8_t)(effect.g1 * blend + effect.g2 * (1.0 - blend));
+            uint8_t b = (uint8_t)(effect.b1 * blend + effect.b2 * (1.0 - blend));
+            
+            leds[port][i] = CRGB(r, g, b);
         }}
-        
-        uint8_t r = (uint8_t)(effect.r1 * blend + effect.r2 * (1.0 - blend));
-        uint8_t g = (uint8_t)(effect.g1 * blend + effect.g2 * (1.0 - blend));
-        uint8_t b = (uint8_t)(effect.b1 * blend + effect.b2 * (1.0 - blend));
-        
-        leds[i] = CRGB(r, g, b);
     }}
     
     wave_index = (wave_index + 1) % NUM_LEDS;
@@ -122,9 +135,26 @@ void apply_wave(Effect& effect) {{
         # Gera definições dos efeitos
         effect_defs = self._generate_effect_definitions(presets)
         
+        # Determina pinos usados (padrão: 2..7). Pode ser substituído via config['data_pins']
+        default_pins = [2, 3, 4, 5, 6, 7]
+        pins = self.config.get("data_pins", default_pins)
+        # Limpa e garante inteiros
+        pins = [int(p) for p in pins]
+        num_ports = len(pins)
+        data_pins_array = ", ".join(str(p) for p in pins)
+
+        # Gera chamadas FastLED.addLeds com pinos constantes (necessário para o template do FastLED)
+        add_calls_lines = []
+        for idx, pin in enumerate(pins):
+            add_calls_lines.append(f"    FastLED.addLeds<WS2812B, {pin}, GRB>(leds[{idx}], NUM_LEDS);")
+        add_leds_calls = "\n".join(add_calls_lines)
+
         # Substitui no template
         firmware_code = self.FIRMWARE_TEMPLATE.format(
             total_leds=self.total_leds,
+            num_ports=num_ports,
+            data_pins_array=data_pins_array,
+            add_leds_calls=add_leds_calls,
             effect_definitions=effect_defs
         )
         

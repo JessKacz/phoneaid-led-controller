@@ -6,6 +6,7 @@ import serial.tools.list_ports
 import threading
 import time
 from PyQt5.QtCore import QObject, pyqtSignal
+from app.serial_utils import probe_port
 
 
 class ArduinoMonitor(QObject):
@@ -48,18 +49,31 @@ class ArduinoMonitor(QObject):
                 self.connection_changed.emit(False)
                 self.status_updated.emit("🔴 Nenhuma porta selecionada")
         else:
-            # Temos uma porta selecionada
+            # Temos uma porta selecionada; além de existir no sistema, tentamos sondar comunicação
             if self.current_port in available_ports:
-                if not self.is_connected:
-                    self.is_connected = True
-                    self.connection_changed.emit(True)
-                    self.status_updated.emit(f"🟢 Conectado em {self.current_port}")
+                # Verifica comunicação real com a porta
+                try:
+                    ok = probe_port(self.current_port)
+                except Exception:
+                    ok = False
+
+                if ok:
+                    if not self.is_connected:
+                        self.is_connected = True
+                        self.connection_changed.emit(True)
+                        self.status_updated.emit(f"🟢 Conectado em {self.current_port}")
+                else:
+                    # A porta existe, mas não responde como esperado
+                    if self.is_connected:
+                        self.is_connected = False
+                        self.connection_changed.emit(False)
+                    self.status_updated.emit(f"⚪ Porta {self.current_port} encontrada, sem resposta serial")
             else:
                 if self.is_connected:
                     self.is_connected = False
                     self.connection_changed.emit(False)
                     self.status_updated.emit(f"⚪ Arduino desconectado de {self.current_port}")
-                    self.current_port = None
+                self.current_port = None
     
     def set_port(self, port):
         """Define qual porta monitorar"""

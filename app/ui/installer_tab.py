@@ -14,7 +14,7 @@ from PyQt5.QtGui import QFont
 from app.config_manager import load_config
 from app.presets_manager import PresetsManager
 from app.firmware_generator import FirmwareGenerator
-from app.serial_utils import get_available_ports
+from app.serial_utils import get_available_ports, detect_arduino_ports, probe_port
 from app.connection_monitor import ArduinoMonitor
 
 
@@ -112,6 +112,10 @@ class InstallerTab(QWidget):
         self.refresh_ports_btn = QPushButton("🔄 Atualizar Portas")
         self.refresh_ports_btn.clicked.connect(self._refresh_ports)
         self.refresh_ports_btn.setFixedWidth(150)
+
+        self.find_btn = QPushButton("🔎 Encontrar Arduino")
+        self.find_btn.clicked.connect(self._find_arduino)
+        self.find_btn.setFixedWidth(160)
         
         self.connect_btn = QPushButton("🔗 Conectar")
         self.connect_btn.clicked.connect(self._manual_connect)
@@ -120,6 +124,7 @@ class InstallerTab(QWidget):
         port_row.addWidget(QLabel("Porta:"))
         port_row.addWidget(self.port_dropdown, stretch=1)
         port_row.addWidget(self.refresh_ports_btn)
+        port_row.addWidget(self.find_btn)
         port_row.addWidget(self.connect_btn)
         
         connection_layout.addLayout(port_row)
@@ -225,6 +230,63 @@ class InstallerTab(QWidget):
         
         self.selected_port = selected
         self.arduino_monitor.set_port(selected)
+
+    def _find_arduino(self):
+        """Procura automaticamente por portas que parecem ser um Arduino.
+
+        Estratégia:
+        - Usa `detect_arduino_ports()` para encontrar portas com descrição/VID compatível.
+        - Para cada candidata, chama `probe_port()` para confirmar comunicação.
+        - Se encontrar, seleciona a porta automaticamente; se não, exibe instruções.
+        """
+        self.status_indicator.setText("🔎 Procurando Arduino...")
+        self.status_indicator.setStyleSheet("color: #ffaa00; font-weight: bold;")
+
+        candidates = detect_arduino_ports()
+        found = None
+
+        # Se o detect não achou nada, analisamos todas as portas disponíveis
+        if not candidates:
+            candidates = get_available_ports()
+
+        for p in candidates:
+            try:
+                if probe_port(p):
+                    found = p
+                    break
+            except Exception:
+                continue
+
+        if found:
+            # Atualiza dropdown e seleciona
+            self._refresh_ports()
+            index = self.port_dropdown.findText(found)
+            if index >= 0:
+                self.port_dropdown.setCurrentIndex(index)
+            else:
+                # Se não estiver na lista, adiciona e seleciona
+                self.port_dropdown.addItem(found)
+                self.port_dropdown.setCurrentText(found)
+
+            self.selected_port = found
+            self.arduino_monitor.set_port(found)
+            QMessageBox.information(self, "Arduino Encontrado", f"✅ Arduino encontrado em {found} e selecionado.")
+        else:
+            # Não encontrou — instruções úteis
+            self.status_indicator.setText("⚪ Nenhum Arduino detectado")
+            self.status_indicator.setStyleSheet("color: #ff6b6b; font-weight: bold;")
+            QMessageBox.warning(
+                self,
+                "Arduino não encontrado",
+                (
+                    "Nenhum Arduino foi detectado nas portas do sistema.\n\n"
+                    "Verifique:\n"
+                    "- Cabo USB e conexões físicas.\n"
+                    "- Drivers do conversor USB-Serial (CH340/CP210x/FTDI) instalados.\n"
+                    "- Se no Windows: verifique o Gerenciador de Dispositivos para a porta COM.\n\n"
+                    "Após verificar, clique em 'Atualizar Portas' e tente novamente."
+                )
+            )
     
     def _on_status_updated(self, status_msg):
         """Atualiza label de status quando ArduinoMonitor emite sinal"""
