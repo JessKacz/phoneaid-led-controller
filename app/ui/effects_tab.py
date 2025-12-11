@@ -184,20 +184,21 @@ class EffectsTab(QWidget):
         layout.addWidget(self.led_preview)
 
         # Define a posição 2D dos 7 LEDs para formar a letra 'P'
-        # Ajuste: usar 5 colunas para conseguir o espaçamento desejado
-        # Top row: 2,3,4 -> cols 0,2,4 (espalhados)
-        # Middle: 1,6,5 -> cols 0,3,4 (um no canto esquerdo, dois à direita)
-        # Bottom: 0 -> col 0 (canto esquerdo)
+        # Novo mapeamento seguindo o diagrama fornecido:
+        # Linha 0: 2 (esq), 3 (um pouco à direita)
+        # Linha 1:                 4 (topo direito, deslocado)
+        # Linha 2: 1 (esq),                5 (dir)
+        # Linha 3: 0 (base esquerda)
+        # Vamos usar grid 5x4 para permitir o espaçamento indicado
         led_positions = {
-            2: (0, 0),
-            3: (2, 0),
-            4: (4, 0),
-            1: (0, 1),
-            6: (3, 1),
-            5: (4, 1),
-            0: (0, 2),
+            2: (0, 0),  # topo esquerdo
+            3: (2, 0),  # topo centro-esquerdo
+            4: (4, 1),  # topo direito, uma linha abaixo (indicado pelo usuário)
+            1: (0, 2),  # meio-esquerdo
+            5: (3, 2),  # meio-direito
+            0: (0, 3),  # base esquerda
         }
-        self.led_preview.set_led_grid_positions(led_positions, cols=5, rows=3)
+        self.led_preview.set_led_grid_positions(led_positions, cols=5, rows=4)
         
         # ===== Botões de Ação =====
         action_layout = QHBoxLayout()
