@@ -25,8 +25,10 @@ class EffectsTab(QWidget):
     def __init__(self):
         super().__init__()
         self.config = load_config()
-        self.total_leds = self.config.get("total_leds", 92)
-        self.letter_mapping = {k.upper(): v for k, v in self.config.get("letters", {}).items()}
+        # Para esta etapa de polimento: preview focado na letra 'P' com 7 LEDs
+        self.total_leds = 7
+        # Mapeamento simples: índices 0..6 correspondem à letra P
+        self.letter_mapping = {"P": (0, 6)}
         
         self.presets_manager = PresetsManager()
         self.current_preset = self.presets_manager.get_active_preset()
@@ -180,6 +182,22 @@ class EffectsTab(QWidget):
         
         self.led_preview = LinearLEDPreview(self.total_leds, self.letter_mapping)
         layout.addWidget(self.led_preview)
+
+        # Define a posição 2D dos 7 LEDs para formar a letra 'P'
+        # Ajuste: usar 5 colunas para conseguir o espaçamento desejado
+        # Top row: 2,3,4 -> cols 0,2,4 (espalhados)
+        # Middle: 1,6,5 -> cols 0,3,4 (um no canto esquerdo, dois à direita)
+        # Bottom: 0 -> col 0 (canto esquerdo)
+        led_positions = {
+            2: (0, 0),
+            3: (2, 0),
+            4: (4, 0),
+            1: (0, 1),
+            6: (3, 1),
+            5: (4, 1),
+            0: (0, 2),
+        }
+        self.led_preview.set_led_grid_positions(led_positions, cols=5, rows=3)
         
         # ===== Botões de Ação =====
         action_layout = QHBoxLayout()
