@@ -164,7 +164,7 @@ class LinearLEDPreview(QWidget):
         painter.drawRect(int(x_start), int(y_fita), int(available_width), self.fita_height)
 
     def _draw_leds_grid(self, painter):
-        """Desenha LEDs em posições 2D definidas por `led_grid_positions`"""
+        """Desenha LEDs como pixels numa grade com linhas visíveis."""
         available_width = self.width() - 40
         available_height = self.height() - 80
         x_start = 20
@@ -184,8 +184,18 @@ class LinearLEDPreview(QWidget):
         offset_x = x_start + (available_width - grid_w) / 2
         offset_y = y_start + (available_height - grid_h) / 2
 
-        # Desenha cada LED como círculo no centro da célula
+        # Desenha a grade (linhas de separação entre células)
+        painter.setPen(QPen(QColor(50, 50, 50), 0.5))
+        for c in range(cols + 1):
+            x = offset_x + c * cell_size
+            painter.drawLine(int(x), int(offset_y), int(x), int(offset_y + grid_h))
+        for r in range(rows + 1):
+            y = offset_y + r * cell_size
+            painter.drawLine(int(offset_x), int(y), int(offset_x + grid_w), int(y))
+
+        # Desenha cada LED como um pequeno quadrado (pixel) no centro da célula
         self._led_centers = {}
+        pixel_size = max(2, int(cell_size * 0.6))
         for idx in range(self.total_leds):
             pos = self.led_grid_positions.get(idx)
             if pos is None:
@@ -197,18 +207,11 @@ class LinearLEDPreview(QWidget):
 
             color = self.led_colors[idx] if idx < len(self.led_colors) else QColor(0, 0, 0)
             painter.setBrush(QBrush(color))
-            painter.setPen(QPen(QColor(50, 50, 50), 1))
-            r = max(6, int(min(cell_size, cell_size) * 0.22))
-            painter.drawEllipse(int(cx - r), int(cy - r), int(2 * r), int(2 * r))
+            painter.setPen(QPen(QColor(20, 20, 20), 0.5))
+            painter.drawRect(int(cx - pixel_size/2), int(cy - pixel_size/2), pixel_size, pixel_size)
 
-            # small highlight
-            highlight = QColor(255, 255, 255, 60)
-            painter.setBrush(QBrush(highlight))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(int(cx - r/3), int(cy - r/3), int(r/1.5), int(r/1.5))
-
-        # Optional border around grid
-        painter.setPen(QPen(QColor(60, 60, 60), 2))
+        # Borda ao redor do grid
+        painter.setPen(QPen(QColor(100, 100, 100), 2))
         painter.drawRect(int(offset_x), int(offset_y), int(grid_w), int(grid_h))
 
     def _draw_leds_relative(self, painter):
@@ -357,12 +360,11 @@ class LinearLEDPreview(QWidget):
         p = QPainter(glow_pix)
         p.setRenderHint(QPainter.Antialiasing)
 
-        # calcula raio base a partir do grid
-        # tenta inferir cell size
+        # Calcula raio base a partir do tamanho da célula do grid
         available_width = self.width() - 40
         cols = max(1, self.grid_cols)
         cell_w = available_width / cols if cols else 40
-        glow_radius = int(max(20, min(60, cell_w * 0.9)))
+        glow_radius = int(max(15, min(50, cell_w * 0.7)))
 
         if use_relative:
             # map relative positions inside the first letter bbox (we focus on single-letter preview)
