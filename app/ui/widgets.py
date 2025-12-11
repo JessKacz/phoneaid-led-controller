@@ -112,25 +112,27 @@ class LinearLEDPreview(QWidget):
         # Fundo preto (carcaça)
         painter.fillRect(self.rect(), QColor(0, 0, 0))
         
-        # Compute letter bounding boxes (needed for relative LED mapping)
-        self._compute_letter_bboxes(painter)
-
-        # Compute LED centers from whichever positioning mode is configured
-        self._compute_led_centers()
-
-        # Render glow first (behind letters and LEDs)
-        self._draw_glow_layer(painter)
-
-        # Then draw LEDs as visible circles on top of the glow
-        if self.led_relative_positions:
-            self._draw_leds_relative(painter)
-        elif self.led_grid_positions:
-            self._draw_leds_grid(painter)
+        # Se em modo grid, desenhar apenas o grid estático com números
+        if self.led_grid_positions:
+            self._draw_grid_with_led_ids(painter)
         else:
-            self._draw_fita_leds(painter)
+            # Desenha os LEDs: modo linear ou fita
+            if self.led_relative_positions:
+                self._draw_leds_relative(painter)
+            elif self.led_grid_positions:
+                self._draw_leds_grid(painter)
+            else:
+                self._draw_fita_leds(painter)
 
-        # Finally draw the letter contours on top
-        self._draw_letras_3d(painter)
+            # Render glow layer offscreen (radial gradients per LED) so it can overflow
+            self._draw_glow_layer(painter)
+
+            # Desenha as letras 3D POR CIMA (alto relevo) — por cima do glow
+            self._draw_letras_3d(painter)
+        
+        # Desenha hover info se necessário
+        if self.hovered_led is not None:
+            self._draw_hover_info(painter)
         
         # Desenha hover info se necessário
         if self.hovered_led is not None:
@@ -212,6 +214,65 @@ class LinearLEDPreview(QWidget):
 
         # Borda ao redor do grid
         painter.setPen(QPen(QColor(100, 100, 100), 2))
+        painter.drawRect(int(offset_x), int(offset_y), int(grid_w), int(grid_h))
+
+    def _draw_grid_with_led_ids(self, painter):
+        """Desenha uma grade estática com números dos LEDs nas posições cartesianas."""
+        available_width = self.width() - 40
+        available_height = self.height() - 80
+        x_start = 20
+        y_start = 40
+
+        cols = max(1, self.grid_cols)
+        rows = max(1, self.grid_rows)
+
+        # Tamanho de cada célula
+        cell_w = available_width / cols
+        cell_h = available_height / rows
+        cell_size = min(cell_w, cell_h)
+
+        grid_w = cell_size * cols
+        grid_h = cell_size * rows
+
+        offset_x = x_start + (available_width - grid_w) / 2
+        offset_y = y_start + (available_height - grid_h) / 2
+
+        # Desenha a grade (linhas)
+        painter.setPen(QPen(QColor(80, 80, 80), 1))
+        for c in range(cols + 1):
+            x = offset_x + c * cell_size
+            painter.drawLine(int(x), int(offset_y), int(x), int(offset_y + grid_h))
+        for r in range(rows + 1):
+            y = offset_y + r * cell_size
+            painter.drawLine(int(offset_x), int(y), int(offset_x + grid_w), int(y))
+
+        # Desenha os números dos LEDs nas posições corretas
+        font = QFont("Arial", max(7, int(cell_size * 0.35)), QFont.Bold)
+        painter.setFont(font)
+        
+        self._led_centers = {}
+        for idx, (col, row) in self.led_grid_positions.items():
+            cx = offset_x + col * cell_size + cell_size / 2
+            cy = offset_y + row * cell_size + cell_size / 2
+            self._led_centers[idx] = (cx, cy)
+
+            # Desenha um pequeno círculo colorido
+            color = self.led_colors[idx] if idx < len(self.led_colors) else QColor(50, 50, 50)
+            painter.setBrush(QBrush(color))
+            painter.setPen(QPen(QColor(150, 150, 150), 0.5))
+            led_r = max(2, int(cell_size * 0.25))
+            painter.drawEllipse(int(cx - led_r), int(cy - led_r), int(led_r * 2), int(led_r * 2))
+
+            # Desenha o número do LED
+            text = str(idx)
+            fm = painter.fontMetrics()
+            text_w = fm.horizontalAdvance(text)
+            text_h = fm.height()
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.drawText(int(cx - text_w / 2), int(cy + text_h / 3), text)
+
+        # Borda ao redor da grade
+        painter.setPen(QPen(QColor(150, 150, 150), 2))
         painter.drawRect(int(offset_x), int(offset_y), int(grid_w), int(grid_h))
 
     def _draw_leds_relative(self, painter):
