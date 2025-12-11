@@ -2,7 +2,7 @@
 widgets.py - Componentes customizados da UI
 """
 from PyQt5.QtWidgets import QWidget
-from PyQt5.QtGui import QPainter, QColor, QFont, QPen, QBrush
+from PyQt5.QtGui import QPainter, QColor, QFont, QPen, QBrush, QPixmap, QRadialGradient, QPainterPath, QFontMetricsF
 from PyQt5.QtCore import Qt, pyqtSignal, QRect
 
 
@@ -31,6 +31,10 @@ class LinearLEDPreview(QWidget):
         self.grid_rows = 0
         self._led_centers = {}
         self.led_radius = 12
+        # Optional: positions relative to a letter bounding box {index: (fx, fy)}
+        self.led_relative_positions = None
+        # letter bboxes computed when drawing letters {letter: (x, y, w, h)}
+        self._letter_bboxes = {}
         
         self.setMinimumHeight(280)
         self.setStyleSheet("background-color: #000000;")
@@ -87,6 +91,17 @@ class LinearLEDPreview(QWidget):
 
         self._led_centers = {}
         self.update()
+
+    def set_led_relative_positions(self, positions):
+        """Define posições relativas dentro da bounding box da letra: {index: (fx, fy)} onde fx,fy in [0,1].
+
+        Essas posições são usadas preferencialmente ao invés de grid positions quando presentes.
+        """
+        if not positions:
+            self.led_relative_positions = None
+        else:
+            self.led_relative_positions = positions.copy()
+        self.update()
     
     def paintEvent(self, event):
         """Desenha a fita de LEDs com letras em alto relevo na frente"""
@@ -102,8 +117,11 @@ class LinearLEDPreview(QWidget):
             self._draw_leds_grid(painter)
         else:
             self._draw_fita_leds(painter)
-        
-        # Desenha as letras 3D POR CIMA (alto relevo)
+
+        # Render glow layer offscreen (radial gradients per LED) so it can overflow
+        self._draw_glow_layer(painter)
+
+        # Desenha as letras 3D POR CIMA (alto relevo) — por cima do glow
         self._draw_letras_3d(painter)
         
         # Desenha hover info se necessário
@@ -184,6 +202,68 @@ class LinearLEDPreview(QWidget):
         # Optional border around grid
         painter.setPen(QPen(QColor(60, 60, 60), 2))
         painter.drawRect(int(offset_x), int(offset_y), int(grid_w), int(grid_h))
+
+    def _draw_glow_layer(self, painter):
+        """Renderiza um layer offscreen com glows radiais por LED e pinta sobre o widget."""
+        # prefer relative positions when available
+        use_relative = bool(self.led_relative_positions and self._letter_bboxes)
+
+        if not self._led_centers and not use_relative:
+            return
+
+        size = self.size()
+        glow_pix = QPixmap(size)
+        glow_pix.fill(Qt.transparent)
+
+        p = QPainter(glow_pix)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        # calcula raio base a partir do grid
+        # tenta inferir cell size
+        available_width = self.width() - 40
+        cols = max(1, self.grid_cols)
+        cell_w = available_width / cols if cols else 40
+        glow_radius = int(max(20, min(60, cell_w * 0.9)))
+
+        if use_relative:
+            # map relative positions inside the first letter bbox (we focus on single-letter preview)
+            # choose the first letter in mapping
+            letter = next(iter(self.letter_mapping.keys())) if self.letter_mapping else None
+            if letter and letter in self._letter_bboxes:
+                bx, by, bw, bh = self._letter_bboxes[letter]
+                for idx, (fx, fy) in self.led_relative_positions.items():
+                    if idx >= len(self.led_colors):
+                        continue
+                    cx = bx + fx * bw
+                    cy = by + fy * bh
+                    col = self.led_colors[idx]
+                    center_color = QColor(col.red(), col.green(), col.blue(), 200)
+                    grad = QRadialGradient(cx, cy, glow_radius)
+                    grad.setColorAt(0.0, center_color)
+                    grad.setColorAt(0.6, QColor(center_color.red(), center_color.green(), center_color.blue(), 120))
+                    grad.setColorAt(1.0, QColor(0, 0, 0, 0))
+                    p.setBrush(QBrush(grad))
+                    p.setPen(Qt.NoPen)
+                    p.drawEllipse(int(cx - glow_radius), int(cy - glow_radius), int(glow_radius * 2), int(glow_radius * 2))
+        else:
+            for idx, (cx, cy) in self._led_centers.items():
+                if idx >= len(self.led_colors):
+                    continue
+                col = self.led_colors[idx]
+                center_color = QColor(col.red(), col.green(), col.blue(), 200)
+                grad = QRadialGradient(cx, cy, glow_radius)
+                grad.setColorAt(0.0, center_color)
+                grad.setColorAt(0.6, QColor(center_color.red(), center_color.green(), center_color.blue(), 120))
+                grad.setColorAt(1.0, QColor(0, 0, 0, 0))
+
+                p.setBrush(QBrush(grad))
+                p.setPen(Qt.NoPen)
+                p.drawEllipse(int(cx - glow_radius), int(cy - glow_radius), int(glow_radius * 2), int(glow_radius * 2))
+
+        p.end()
+
+        # desenha o pixmap com normal compositing (glow pode ultrapassar letras)
+        painter.drawPixmap(0, 0, glow_pix)
     
     def _draw_letras_3d(self, painter):
         """Desenha as letras em alto relevo (3D) sobre a fita"""
@@ -206,7 +286,7 @@ class LinearLEDPreview(QWidget):
                 # calcula bounding box a partir dos centros do grid
                 cols = [c for i, (c, r) in self.led_grid_positions.items() if start <= i <= end]
                 rows = [r for i, (c, r) in self.led_grid_positions.items() if start <= i <= end]
-                if cols and rows:
+                    if cols and rows:
                     min_col = min(cols)
                     max_col = max(cols)
                     min_row = min(rows)
@@ -223,6 +303,14 @@ class LinearLEDPreview(QWidget):
                     letter_center_x = (x_start_letter + x_end_letter) / 2
                     letter_center_y = 40 + (available_height - cell_size * self.grid_rows) / 2 + (min_row + max_row + 1) / 2 * cell_size
                     letter_width = x_end_letter - x_start_letter
+                    # compute approximate letter bbox for relative positioning
+                    fm = QFontMetricsF(font)
+                    total_h = fm.ascent() + fm.descent()
+                    bbox_x = x_start_letter
+                    bbox_y = letter_center_y - total_h / 2
+                    bbox_w = letter_width
+                    bbox_h = total_h
+                    self._letter_bboxes[letter] = (bbox_x, bbox_y, bbox_w, bbox_h)
                 else:
                     continue
             else:
@@ -231,30 +319,65 @@ class LinearLEDPreview(QWidget):
                 letter_center_x = (x_start_letter + x_end_letter) / 2
                 letter_center_y = y_fita + self.fita_height / 2
                 letter_width = x_end_letter - x_start_letter
+                # compute bbox for linear mode as well
+                fm = QFontMetricsF(font)
+                total_h = fm.ascent() + fm.descent()
+                bbox_x = x_start_letter
+                bbox_y = letter_center_y - total_h / 2
+                bbox_w = letter_width
+                bbox_h = total_h
+                self._letter_bboxes[letter] = (bbox_x, bbox_y, bbox_w, bbox_h)
             
-            # Desenha sombra/profundidade (efeito 3D - sombra inferior direita)
-            for offset in range(1, self.letra_depth + 1):
-                alpha = int(100 * (1 - offset / self.letra_depth))
-                shadow_color = QColor(0, 0, 0, alpha)
-                painter.setPen(shadow_color)
+            # Se estivermos em modo grid, desenhar apenas o contorno (stroke) da letra
+            if self.led_grid_positions:
+                # cria um path com o texto para poder desenhar o traço (stroke) sem preencher
+                path = QPainterPath()
+                # calcula baseline para centralizar o texto
+                fm = QFontMetricsF(font)
+                text_width = fm.horizontalAdvance(letter)
+                ascent = fm.ascent()
+                descent = fm.descent()
+                total_h = ascent + descent
+                baseline_x = letter_center_x - text_width / 2
+                baseline_y = letter_center_y + (ascent - total_h / 2)
+                path.addText(baseline_x, baseline_y, font, letter)
+
+                # desenha sombra/offset leve atrás do contorno para profundidade
+                for offset in range(1, 3):
+                    shadow_path = QPainterPath()
+                    shadow_path.addText(baseline_x + offset, baseline_y + offset, font, letter)
+                    painter.setPen(QPen(QColor(0, 0, 0, 80), 6))
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawPath(shadow_path)
+
+                # desenha o traço principal (contorno) por cima
+                painter.setPen(QPen(QColor(255, 255, 255), 3))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPath(path)
+            else:
+                # Desenha sombra/profundidade (efeito 3D - sombra inferior direita)
+                for offset in range(1, self.letra_depth + 1):
+                    alpha = int(100 * (1 - offset / self.letra_depth))
+                    shadow_color = QColor(0, 0, 0, alpha)
+                    painter.setPen(shadow_color)
+                    painter.setFont(font)
+                    x_shadow = letter_center_x + offset
+                    y_shadow = letter_center_y + offset
+                    # Desenha sombra dentro da região da letra
+                    rect_shadow = QRect(int(x_start_letter), int(y_shadow - 40), int(letter_width), 100)
+                    painter.drawText(rect_shadow, Qt.AlignCenter, letter)
+
+                # Desenha a letra frente iluminada
+                painter.setPen(QPen(QColor(255, 255, 255)))
                 painter.setFont(font)
-                x_shadow = letter_center_x + offset
-                y_shadow = letter_center_y + offset
-                # Desenha sombra dentro da região da letra
-                rect_shadow = QRect(int(x_start_letter), int(y_shadow - 40), int(letter_width), 100)
-                painter.drawText(rect_shadow, Qt.AlignCenter, letter)
-            
-            # Desenha a letra frente iluminada
-            painter.setPen(QPen(QColor(255, 255, 255)))
-            painter.setFont(font)
-            rect_main = QRect(int(x_start_letter), int(letter_center_y - 50), int(letter_width), 120)
-            painter.drawText(rect_main, Qt.AlignCenter, letter)
-            
-            # Destaque na parte superior (efeito de brilho 3D)
-            highlight_color = QColor(200, 200, 200)
-            painter.setPen(QPen(highlight_color))
-            rect_highlight = QRect(int(x_start_letter) - 2, int(letter_center_y - 52), int(letter_width), 120)
-            painter.drawText(rect_highlight, Qt.AlignCenter, letter)
+                rect_main = QRect(int(x_start_letter), int(letter_center_y - 50), int(letter_width), 120)
+                painter.drawText(rect_main, Qt.AlignCenter, letter)
+
+                # Destaque na parte superior (efeito de brilho 3D)
+                highlight_color = QColor(200, 200, 200)
+                painter.setPen(QPen(highlight_color))
+                rect_highlight = QRect(int(x_start_letter) - 2, int(letter_center_y - 52), int(letter_width), 120)
+                painter.drawText(rect_highlight, Qt.AlignCenter, letter)
     
     def _draw_hover_info(self, painter):
         """Desenha informação de qual LED está sendo observado"""

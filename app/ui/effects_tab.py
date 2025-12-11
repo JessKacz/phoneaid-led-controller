@@ -190,15 +190,18 @@ class EffectsTab(QWidget):
         # Linha 2: 1 (esq),                5 (dir)
         # Linha 3: 0 (base esquerda)
         # Vamos usar grid 5x4 para permitir o espaçamento indicado
-        led_positions = {
-            2: (0, 0),  # topo esquerdo
-            3: (2, 0),  # topo centro-esquerdo
-            4: (4, 1),  # topo direito, uma linha abaixo (indicado pelo usuário)
-            1: (0, 2),  # meio-esquerdo
-            5: (3, 2),  # meio-direito
-            0: (0, 3),  # base esquerda
+        # Define posições relativas (frações dentro da bounding box da letra P)
+        # fx,fy em 0..1 (0=esquerda/topo, 1=direita/base)
+        led_rel = {
+            2: (0.20, 0.12),
+            3: (0.45, 0.12),
+            4: (0.85, 0.18),
+            1: (0.18, 0.50),
+            5: (0.75, 0.50),
+            6: (0.54, 0.36),
+            0: (0.18, 0.92),
         }
-        self.led_preview.set_led_grid_positions(led_positions, cols=5, rows=4)
+        self.led_preview.set_led_relative_positions(led_rel)
         
         # ===== Botões de Ação =====
         action_layout = QHBoxLayout()
