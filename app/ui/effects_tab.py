@@ -25,10 +25,10 @@ class EffectsTab(QWidget):
     def __init__(self):
         super().__init__()
         self.config = load_config()
-        # Para esta etapa de polimento: preview focado na letra 'P' com 7 LEDs
-        self.total_leds = 7
-        # Mapeamento simples: índices 0..6 correspondem à letra P
-        self.letter_mapping = {"P": (0, 6)}
+        # Use the LED layout provided by the user (ASCII map) — 46 LEDs (indices 0..45)
+        self.total_leds = 46
+        # No letter overlay for this view; LEDs are positioned in a grid
+        self.letter_mapping = {}
         
         self.presets_manager = PresetsManager()
         self.current_preset = self.presets_manager.get_active_preset()
@@ -161,7 +161,7 @@ class EffectsTab(QWidget):
         self.wave_width_slider = QSlider(Qt.Horizontal)
         self.wave_width_slider.setMinimum(1)
         self.wave_width_slider.setMaximum(self.total_leds)
-        self.wave_width_slider.setValue(self.total_leds // 4)
+        self.wave_width_slider.setValue(max(1, self.total_leds // 4))
         self.wave_width_slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.wave_width_slider.sliderMoved.connect(self._on_preview_update)
         
@@ -183,25 +183,19 @@ class EffectsTab(QWidget):
         self.led_preview = LinearLEDPreview(self.total_leds, self.letter_mapping)
         layout.addWidget(self.led_preview)
 
-        # Define a posição 2D dos 7 LEDs para formar a letra 'P'
-        # Novo mapeamento seguindo o diagrama fornecido:
-        # Linha 0: 2 (esq), 3 (um pouco à direita)
-        # Linha 1:                 4 (topo direito, deslocado)
-        # Linha 2: 1 (esq),                5 (dir)
-        # Linha 3: 0 (base esquerda)
-        # Vamos usar grid 5x4 para permitir o espaçamento indicado
-        # Define posições relativas (frações dentro da bounding box da letra P)
-        # fx,fy em 0..1 (0=esquerda/topo, 1=direita/base)
-        led_rel = {
-            2: (0.20, 0.12),
-            3: (0.45, 0.12),
-            4: (0.85, 0.18),
-            1: (0.18, 0.50),
-            5: (0.75, 0.50),
-            6: (0.54, 0.36),
-            0: (0.18, 0.92),
+        # Set LED positions according to the ASCII map provided by the user.
+        # Grid: 21 columns x 4 rows (columns indexed 0..20, rows 0..3)
+        led_positions = {
+            # row 0
+            2:  (2, 0), 3:  (3, 0), 6:  (5, 0), 14: (9, 0), 24: (12, 0), 31: (15, 0), 39: (18, 0), 45: (20, 0),
+            # row 1
+            4:  (1, 1), 9:  (3, 1), 13: (5, 1), 15: (7, 1), 22: (9, 1), 23: (10,1), 30: (12,1), 32: (13,1), 38: (15,1), 40: (17,1), 44: (19,1),
+            # row 2
+            1:  (0, 2), 5:  (1, 2), 7:  (2, 2), 10: (3, 2), 18: (5, 2), 19: (6, 2), 20: (8, 2), 25: (9, 2), 29: (11,2), 35: (12,2), 33: (13,2), 37: (15,2), 41: (16,2),
+            # row 3
+            0:  (0, 3), 8:  (1, 3), 11: (2, 3), 12: (3, 3), 16: (4, 3), 17: (5, 3), 21: (6, 3), 26: (7, 3), 27: (8, 3), 28: (9, 3), 34: (10,3), 36: (11,3), 42: (12,3), 43: (13,3),
         }
-        self.led_preview.set_led_relative_positions(led_rel)
+        self.led_preview.set_led_grid_positions(led_positions, cols=21, rows=4)
         
         # ===== Botões de Ação =====
         action_layout = QHBoxLayout()
