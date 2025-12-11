@@ -191,6 +191,27 @@ Durante a execução da aplicação, o status de conexão com o Arduino é monit
 
 Verifique o status na aba "Instalador" antes de fazer upload.
 
+## 🆕 Detecção automática e Firmware Multi-Portas
+
+Novas funcionalidades adicionadas (desde dezembro/2025):
+
+- Botão **🔎 Encontrar Arduino** na aba **Instalador** — varre as portas seriais do sistema, tenta uma validação mínima de comunicação e seleciona automaticamente a porta onde um Arduino plausível foi encontrado. Se nada for encontrado, o app mostra instruções úteis (verificar cabo, drivers, Gerenciador de Dispositivos no Windows).
+- Detecção usa heurística (descrição/VID/PID e tentativa de abrir a porta). Para detecção mais robusta é possível usar um handshake (PING/PONG) — isso requer que o firmware rodando no Arduino responda ao ping.
+
+### Firmware multi-portas
+
+O gerador de firmware agora suporta gerar código que controla várias saídas (portas) do Arduino em paralelo. Por limitações da biblioteca FastLED, os pinos de dados precisam ser constantes em tempo de compilação — por isso o gerador cria chamadas `FastLED.addLeds<WS2812B, PIN, GRB>(...)` separadas para cada pino listado.
+
+Onde configurar os pinos:
+- Você pode definir quais pinos serão usados editando o `app/config.json` adicionando a chave `"data_pins": [2,3,4]` (exemplo) ou deixá-la ausente para usar o padrão `[2,3,4,5,6,7]`.
+
+Observações importantes:
+- Se você usar menos portas que o padrão, o gerador irá criar apenas as chamadas necessárias (por exemplo, 3 pinos → 3 chamadas `addLeds`).
+- Ao colar o código no Arduino IDE, a compilação funciona porque cada pino aparece como constante no código gerado (resolve o erro de "not usable in a constant expression").
+- Se quiser que a detecção seja estrita (confirmação via handshake), podemos incluir um pequeno handler serial no firmware gerado para responder a um `PING` com `PONG` — recomendo isso para instalações onde vários dispositivos USB podem confundir a heurística.
+
+Para quaisquer ajustes de pinos ou integração handshake, veja as seções de configuração ou abra uma issue no repositório.
+
 ## 🐛 Troubleshooting
 
 ### Arduino não detectado
