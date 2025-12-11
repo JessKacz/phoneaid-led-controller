@@ -112,8 +112,10 @@ class LinearLEDPreview(QWidget):
         # Fundo preto (carcaça)
         painter.fillRect(self.rect(), QColor(0, 0, 0))
         
-        # Desenha os LEDs: modo grid (2D) ou fita linear
-        if self.led_grid_positions:
+        # Desenha os LEDs: modo relativo (dentro do contorno), modo grid (2D) ou fita linear
+        if self.led_relative_positions:
+            self._draw_leds_relative(painter)
+        elif self.led_grid_positions:
             self._draw_leds_grid(painter)
         else:
             self._draw_fita_leds(painter)
@@ -203,6 +205,38 @@ class LinearLEDPreview(QWidget):
         painter.setPen(QPen(QColor(60, 60, 60), 2))
         painter.drawRect(int(offset_x), int(offset_y), int(grid_w), int(grid_h))
 
+    def _draw_leds_relative(self, painter):
+        """Desenha LEDs como círculos em posições relativas dentro da bounding box da letra."""
+        if not self.led_relative_positions or not self._letter_bboxes:
+            return
+
+        # assume single letter preview (first mapping key)
+        letter = next(iter(self.letter_mapping.keys())) if self.letter_mapping else None
+        if not letter or letter not in self._letter_bboxes:
+            return
+
+        bx, by, bw, bh = self._letter_bboxes[letter]
+        self._led_centers = {}
+
+        for idx, (fx, fy) in self.led_relative_positions.items():
+            if idx >= len(self.led_colors):
+                continue
+            cx = bx + fx * bw
+            cy = by + fy * bh
+            self._led_centers[idx] = (cx, cy)
+
+            color = self.led_colors[idx]
+            painter.setBrush(QBrush(color))
+            painter.setPen(QPen(QColor(50, 50, 50), 1))
+            r = max(6, int(min(bw, bh) * 0.08))
+            painter.drawEllipse(int(cx - r), int(cy - r), int(2 * r), int(2 * r))
+
+            # small highlight
+            highlight = QColor(255, 255, 255, 90)
+            painter.setBrush(QBrush(highlight))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(int(cx - r/3), int(cy - r/3), int(r/1.5), int(r/1.5))
+
     def _draw_glow_layer(self, painter):
         """Renderiza um layer offscreen com glows radiais por LED e pinta sobre o widget."""
         # prefer relative positions when available
@@ -286,7 +320,7 @@ class LinearLEDPreview(QWidget):
                 # calcula bounding box a partir dos centros do grid
                 cols = [c for i, (c, r) in self.led_grid_positions.items() if start <= i <= end]
                 rows = [r for i, (c, r) in self.led_grid_positions.items() if start <= i <= end]
-                    if cols and rows:
+                if cols and rows:
                     min_col = min(cols)
                     max_col = max(cols)
                     min_row = min(rows)
