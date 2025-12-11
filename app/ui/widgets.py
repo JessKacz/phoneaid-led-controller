@@ -112,7 +112,16 @@ class LinearLEDPreview(QWidget):
         # Fundo preto (carcaça)
         painter.fillRect(self.rect(), QColor(0, 0, 0))
         
-        # Desenha os LEDs: modo relativo (dentro do contorno), modo grid (2D) ou fita linear
+        # Compute letter bounding boxes (needed for relative LED mapping)
+        self._compute_letter_bboxes(painter)
+
+        # Compute LED centers from whichever positioning mode is configured
+        self._compute_led_centers()
+
+        # Render glow first (behind letters and LEDs)
+        self._draw_glow_layer(painter)
+
+        # Then draw LEDs as visible circles on top of the glow
         if self.led_relative_positions:
             self._draw_leds_relative(painter)
         elif self.led_grid_positions:
@@ -120,10 +129,7 @@ class LinearLEDPreview(QWidget):
         else:
             self._draw_fita_leds(painter)
 
-        # Render glow layer offscreen (radial gradients per LED) so it can overflow
-        self._draw_glow_layer(painter)
-
-        # Desenha as letras 3D POR CIMA (alto relevo) — por cima do glow
+        # Finally draw the letter contours on top
         self._draw_letras_3d(painter)
         
         # Desenha hover info se necessário
@@ -236,6 +242,105 @@ class LinearLEDPreview(QWidget):
             painter.setBrush(QBrush(highlight))
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(int(cx - r/3), int(cy - r/3), int(r/1.5), int(r/1.5))
+
+    def _compute_letter_bboxes(self, painter):
+        """Compute and store bounding boxes for letters without drawing them.
+
+        This mirrors the logic used in `_draw_letras_3d` to compute letter positions.
+        """
+        self._letter_bboxes = {}
+        available_width = self.width() - 40
+        led_width = available_width / max(1, self.total_leds)
+        x_start = 20
+        y_fita = self.fita_top
+
+        font = QFont("Arial", self.letra_font_size, QFont.Bold)
+        fm = QFontMetricsF(font)
+
+        for letter, (start, end) in self.letter_mapping.items():
+            if start >= self.total_leds or end >= self.total_leds:
+                continue
+            if self.led_grid_positions:
+                cols = [c for i, (c, r) in self.led_grid_positions.items() if start <= i <= end]
+                rows = [r for i, (c, r) in self.led_grid_positions.items() if start <= i <= end]
+                if cols and rows:
+                    min_col = min(cols)
+                    max_col = max(cols)
+                    min_row = min(rows)
+                    max_row = max(rows)
+
+                    available_height = self.height() - 80
+                    cell_w = available_width / max(1, self.grid_cols)
+                    cell_h = available_height / max(1, self.grid_rows)
+                    cell_size = min(cell_w, cell_h)
+
+                    x_start_letter = 20 + (available_width - cell_size * self.grid_cols) / 2 + min_col * cell_size
+                    x_end_letter = 20 + (available_width - cell_size * self.grid_cols) / 2 + (max_col + 1) * cell_size
+                    letter_center_x = (x_start_letter + x_end_letter) / 2
+                    letter_center_y = 40 + (available_height - cell_size * self.grid_rows) / 2 + (min_row + max_row + 1) / 2 * cell_size
+                    letter_width = x_end_letter - x_start_letter
+                else:
+                    continue
+            else:
+                x_start_letter = x_start + start * led_width
+                x_end_letter = x_start + (end + 1) * led_width
+                letter_center_x = (x_start_letter + x_end_letter) / 2
+                letter_center_y = y_fita + self.fita_height / 2
+                letter_width = x_end_letter - x_start_letter
+
+            total_h = fm.ascent() + fm.descent()
+            bbox_x = x_start_letter
+            bbox_y = letter_center_y - total_h / 2
+            bbox_w = letter_width
+            bbox_h = total_h
+            self._letter_bboxes[letter] = (bbox_x, bbox_y, bbox_w, bbox_h)
+
+    def _compute_led_centers(self):
+        """Populate `_led_centers` based on current positioning mode without drawing."""
+        self._led_centers = {}
+        if self.led_relative_positions and self._letter_bboxes:
+            # use first letter bbox
+            letter = next(iter(self.letter_mapping.keys())) if self.letter_mapping else None
+            if not letter or letter not in self._letter_bboxes:
+                return
+            bx, by, bw, bh = self._letter_bboxes[letter]
+            for idx, (fx, fy) in self.led_relative_positions.items():
+                cx = bx + fx * bw
+                cy = by + fy * bh
+                self._led_centers[idx] = (cx, cy)
+        elif self.led_grid_positions:
+            # compute centers based on grid
+            available_width = self.width() - 40
+            available_height = self.height() - 80
+            x_start = 20
+            y_start = 40
+            cols = max(1, self.grid_cols)
+            rows = max(1, self.grid_rows)
+            cell_w = available_width / cols
+            cell_h = available_height / rows
+            cell_size = min(cell_w, cell_h)
+            grid_w = cell_size * cols
+            grid_h = cell_size * rows
+            offset_x = x_start + (available_width - grid_w) / 2
+            offset_y = y_start + (available_height - grid_h) / 2
+            for idx in range(self.total_leds):
+                pos = self.led_grid_positions.get(idx)
+                if pos is None:
+                    continue
+                col, row = pos
+                cx = offset_x + col * cell_size + cell_size / 2
+                cy = offset_y + row * cell_size + cell_size / 2
+                self._led_centers[idx] = (cx, cy)
+        else:
+            # linear tape
+            available_width = self.width() - 40
+            led_width = available_width / max(1, self.total_leds)
+            x_start = 20
+            y_fita = self.fita_top
+            for i in range(self.total_leds):
+                x = x_start + i * led_width + led_width / 2
+                y = y_fita + self.fita_height / 2
+                self._led_centers[i] = (x, y)
 
     def _draw_glow_layer(self, painter):
         """Renderiza um layer offscreen com glows radiais por LED e pinta sobre o widget."""
